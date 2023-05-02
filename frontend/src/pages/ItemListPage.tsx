@@ -11,6 +11,7 @@ import { theme } from "@/styles/theme";
 
 //import images
 import logo from "../assets/logo.png";
+import { error, warning } from "@components/common/notify";
 
 export default function ItemListPage() {
   const { idx } = useParams<{ idx: string }>();
@@ -31,16 +32,16 @@ export default function ItemListPage() {
     fetchData();
   }, [projectIdx]);
 
-  if (!projectDetail) {
-    return <div>Loading...</div>;
-  }
+  useEffect(() => {
+    error("하하하");
+  }, []);
 
   // Header type 설정
   const [type, setType] = useState<string>("standard");
-  
+
   return (
     <>
-      <Header type={type}  />
+      <Header type={type} />
       <STitleBox>
         <SEditButton>설정</SEditButton>
         <SDiv>
