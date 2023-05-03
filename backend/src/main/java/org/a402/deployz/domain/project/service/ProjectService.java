@@ -1,18 +1,28 @@
 package org.a402.deployz.domain.project.service;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import static org.a402.deployz.domain.project.entity.enums.FrameworkType.*;
+import static org.a402.deployz.domain.project.entity.enums.ReactVersion.*;
+import static org.a402.deployz.domain.project.entity.enums.SpringBootVersion.*;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+import javax.persistence.EntityManager;
+import javax.validation.Valid;
 
 import org.a402.deployz.domain.git.entity.GitConfig;
 import org.a402.deployz.domain.git.entity.GitToken;
 import org.a402.deployz.domain.item.repository.ItemRepository;
 import org.a402.deployz.domain.item.request.ItemConfigRequest;
 import org.a402.deployz.domain.member.entity.Member;
+import org.a402.deployz.domain.member.exception.MemberNotFoundException;
 import org.a402.deployz.domain.member.repository.MemberRepository;
 import org.a402.deployz.domain.project.entity.NginxConfig;
 import org.a402.deployz.domain.project.entity.Project;
 import org.a402.deployz.domain.project.exception.ProjectNotFoundException;
-import org.a402.deployz.domain.member.exception.MemberNotFoundException;
 import org.a402.deployz.domain.project.repository.GitConfigRepository;
 import org.a402.deployz.domain.project.repository.GitTokenRepository;
 import org.a402.deployz.domain.project.repository.NginxConfigRepository;
@@ -21,26 +31,12 @@ import org.a402.deployz.domain.project.repository.ProxyConfigRepository;
 import org.a402.deployz.domain.project.request.NginxConfigRequest;
 import org.a402.deployz.domain.project.request.TotalProjectConfigRequest;
 import org.a402.deployz.domain.project.response.ProjectResponse;
-import org.a402.deployz.global.error.GlobalErrorCode;
-import org.apache.catalina.session.PersistentManager;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Optional;
-
-import static org.a402.deployz.domain.project.entity.enums.FrameworkType.*;
-import static org.a402.deployz.domain.project.entity.enums.ReactVersion.getReactVersion;
-import static org.a402.deployz.domain.project.entity.enums.SpringBootVersion.getSpringBootVersion;
-
-import javax.persistence.EntityManager;
-import javax.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 //  | findOrder() | 조회 유형의 service 메서드 |
 //  | addOrder() | 등록 유형의 service 메서드 |
@@ -100,8 +96,8 @@ public class ProjectService {
 	@Transactional
 	public void removeProject(@Valid long projectIdx) {
 		try {
-			projectRepository.findByIdx(projectIdx)
-				.orElseThrow(() -> new ProjectNotFoundException(GlobalErrorCode.PROJECT_NOT_FOUND))
+			projectRepository.findProjectByIdx(projectIdx)
+				.orElseThrow(ProjectNotFoundException::new)
 				.updateDeletedFlag();
 		} catch (Exception e) {
 			log.error("Error deleting project with ID {}: {}", projectIdx, e.getMessage());
@@ -132,12 +128,13 @@ public class ProjectService {
 		//true: 사용 가능, false: 사용 불가
 		portCheck.put("port1", !itemRepository.existsByPortNumber1(port1));
 		portCheck.put("port2", !itemRepository.existsByPortNumber2(port2));
+
 		return portCheck;
 	}
 
 	// staus를 확인하기 위한 코드
 	@Transactional(readOnly = true)
-	public List<ProjectResponse> findProject(long memberIdx) {
+	public List<ProjectResponse> findProjectList(long memberIdx) {
 		List<Project> tmp;
 		try {
 			tmp = projectRepository.findByMemberIdx(memberIdx);
@@ -178,17 +175,20 @@ public class ProjectService {
 			}
 			result.add(new ProjectResponse(project, status, itemCnt));
 		}
+
 		return result;
 	}
 
+	@Transactional(readOnly = true)
+	public Project findProject(final long projectIdx) {
+		return projectRepository.findProjectByIdx(projectIdx).orElseThrow(ProjectNotFoundException::new);
+	}
+
 	@Transactional
-	public void modifyProject(LocalDateTime mostLastSuccessTime, LocalDateTime mostLastFailureTime,
-		Long projectIdx) {
+	public Project modifyProject(LocalDateTime mostLastSuccessTime, LocalDateTime mostLastFailureTime, Project project) {
 		//프로젝트의 최근 성공시간과 최근 실패 시간 업데이트
+		project.updateLastDates(mostLastSuccessTime, mostLastFailureTime);
 
-		 projectRepository.findProjectByIdx(projectIdx)
-			.orElseThrow(() -> new ProjectNotFoundException(GlobalErrorCode.PROJECT_NOT_FOUND));
-
-
+		return projectRepository.save(project);
 	}
 }

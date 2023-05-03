@@ -34,4 +34,13 @@ public class ItemListResponse {
 		this.lastFailureDate=item.getLastFailureDate();
 		this.status=status;
 	}
+
+	public ItemListResponse(Item item){
+		this.idx=item.getIdx();
+		this.name=item.getName();
+		this.portNumber1=item.getPortNumber1();
+		this.portNumber2=item.getPortNumber2();
+		this.lastSuccessDate=item.getLastSuccessDate();
+		this.lastFailureDate=item.getLastFailureDate();
+	}
 }
