@@ -1,19 +1,29 @@
 package org.a402.deployz.domain.project.service;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import static org.a402.deployz.domain.project.entity.enums.FrameworkType.*;
+import static org.a402.deployz.domain.project.entity.enums.ReactVersion.*;
+import static org.a402.deployz.domain.project.entity.enums.SpringBootVersion.*;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+import javax.validation.Valid;
+
+import org.a402.deployz.domain.deploy.PathParser;
 import org.a402.deployz.domain.git.entity.GitConfig;
 import org.a402.deployz.domain.git.entity.GitToken;
 import org.a402.deployz.domain.item.entity.Item;
 import org.a402.deployz.domain.item.repository.ItemRepository;
 import org.a402.deployz.domain.item.request.ItemConfigRequest;
 import org.a402.deployz.domain.member.entity.Member;
+import org.a402.deployz.domain.member.exception.MemberNotFoundException;
 import org.a402.deployz.domain.member.repository.MemberRepository;
 import org.a402.deployz.domain.project.entity.NginxConfig;
 import org.a402.deployz.domain.project.entity.Project;
 import org.a402.deployz.domain.project.exception.ProjectNotFoundException;
-import org.a402.deployz.domain.member.exception.MemberNotFoundException;
 import org.a402.deployz.domain.project.repository.GitConfigRepository;
 import org.a402.deployz.domain.project.repository.GitTokenRepository;
 import org.a402.deployz.domain.project.repository.NginxConfigRepository;
@@ -22,37 +32,17 @@ import org.a402.deployz.domain.project.repository.ProxyConfigRepository;
 import org.a402.deployz.domain.project.request.NginxConfigRequest;
 import org.a402.deployz.domain.project.request.TotalProjectConfigRequest;
 import org.a402.deployz.domain.project.response.ProjectResponse;
-import org.a402.deployz.global.error.GlobalErrorCode;
-import org.apache.catalina.session.PersistentManager;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Optional;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
-import static org.a402.deployz.domain.project.entity.enums.FrameworkType.*;
-import static org.a402.deployz.domain.project.entity.enums.ReactVersion.getReactVersion;
-import static org.a402.deployz.domain.project.entity.enums.SpringBootVersion.getSpringBootVersion;
-
-import javax.persistence.EntityManager;
-import javax.validation.Valid;
-
-//  | findOrder() | 조회 유형의 service 메서드 |
-//  | addOrder() | 등록 유형의 service 메서드 |
-//  | modifyOrder() | 변경 유형의 service 메서드 |
-//  | removeOrder() | 삭제 유형의 service 메서드 |
-//  | saveOrder() | 등록/수정/삭제 가 동시에 일어나는 유형의 service 메서드 |
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ProjectService {
-
 	private final ProjectRepository projectRepository;
 	private final MemberRepository memberRepository;
 	private final GitConfigRepository gitConfigRepository;
@@ -61,36 +51,50 @@ public class ProjectService {
 	private final ItemRepository itemRepository;
 	private final GitTokenRepository gitTokenRepository;
 	private final PasswordEncoder passwordEncoder;
-	private final EntityManager entityManager;
+	private final PathParser pathParser;
+
+	public static final String CLONE = "Clone";
 
 	@Transactional
-	public void addProject(TotalProjectConfigRequest request, String userEmail) {
+	public void addProject(final TotalProjectConfigRequest request, final String userEmail) {
 		// Project 저장
-		Member member = memberRepository.findMemberByEmail(userEmail).orElseThrow(MemberNotFoundException::new);
-		Project project = projectRepository.save(
+		final Member member = memberRepository.findMemberByEmail(userEmail).orElseThrow(MemberNotFoundException::new);
+		final Project project = projectRepository.save(
 			request.getProjectConfig().toEntity(member));
 
 		// GitConfig 저장
-		GitConfig gitConfig = gitConfigRepository.save(request.getProjectConfig().toGEntity(project));
+		final GitConfig gitConfig = gitConfigRepository.save(request.getProjectConfig().toGEntity(project));
+
+		// Path 설정
+//		final String projectPath = pathParser.getProjectPath(project.getProjectName()).toString();
+//		final String logPath = pathParser.getLogPath(project.getProjectName()).toString();
 
 		// Item 저장
 		for (int i = 0; i < request.getItemList().size(); i++) {
-			ItemConfigRequest itemConfigRequest = request.getItemList().get(i);
+			final ItemConfigRequest itemConfigRequest = request.getItemList().get(i);
 			itemRepository.save(itemConfigRequest.toEntity(project));
 
 			// GitToken 저장
-			GitToken gitToken = GitToken.builder()
+			final GitToken gitToken = GitToken.builder()
 				.secretToken(passwordEncoder.encode(itemConfigRequest.getSecretToken()))
 				.branchName(itemConfigRequest.getBranchName())
 				.gitConfig(gitConfig)
 				.build();
 
 			gitTokenRepository.save(gitToken);
+
+			// git clone
+			log.info("GitClone Start");
+//			final String cloneCommand = GitAdapter.getCloneCommand(gitToken);
+//			CommandInterpreter.runDestinationPath(projectPath, logPath, CLONE, cloneCommand);
+//
+//			FileManager.checkAndCreateDirectory(projectPath);
+//			FileManager.checkAndCreateDirectory(logPath);
 		}
 
 		// NginxConfig 저장
-		NginxConfigRequest nginxConfigRequest = request.getNginxConfig();
-		NginxConfig nginxConfig = nginxConfigRepository.save(nginxConfigRequest.toEntity(project));
+		final NginxConfigRequest nginxConfigRequest = request.getNginxConfig();
+		final NginxConfig nginxConfig = nginxConfigRepository.save(nginxConfigRequest.toEntity(project));
 
 		// ProxyConfig 저장
 		for (int i = 0; i < nginxConfigRequest.getProxyPathList().size(); i++) {
@@ -101,14 +105,15 @@ public class ProjectService {
 	@Transactional
 	public void removeProject(@Valid long projectIdx) {
 		try {
-			projectRepository.findByIdx(projectIdx)
-				.orElseThrow(() -> new ProjectNotFoundException(GlobalErrorCode.PROJECT_NOT_FOUND))
+			projectRepository.findProjectByIdx(projectIdx)
+				.orElseThrow(ProjectNotFoundException::new)
 				.updateDeletedFlag();
 
 			//해당 projectIdx의 item들도 삭제
-			List<Item> items=projectRepository.findByIdx(projectIdx).orElseThrow(() -> new ProjectNotFoundException(GlobalErrorCode.PROJECT_NOT_FOUND)).getItems();
+			List<Item> items = projectRepository.findProjectByIdx(projectIdx)
+				.orElseThrow(ProjectNotFoundException::new).getItems();
 
-			for (Item item: items){
+			for (Item item : items) {
 				item.updateDeletedFlag();
 			}
 
@@ -138,28 +143,45 @@ public class ProjectService {
 	@Transactional
 	public HashMap<String, Boolean> findPortNumCheckList(Long port1, Long port2) {
 		HashMap<String, Boolean> portCheck = new HashMap<>();
+
 		//true: 사용 가능, false: 사용 불가
-		portCheck.put("port1", !itemRepository.existsByPortNumber1(port1));
-		portCheck.put("port2", !itemRepository.existsByPortNumber2(port2));
+		if (!itemRepository.existsByPortNumber1(port1) && !itemRepository.existsByPortNumber2(port1)) {
+			portCheck.put("port1", true);
+		} else
+			portCheck.put("port1", false);
+
+		if (!itemRepository.existsByPortNumber1(port2) && !itemRepository.existsByPortNumber2(port2)) {
+			portCheck.put("port2", true);
+		} else
+			portCheck.put("port2", false);
+
 		return portCheck;
+	}
+
+	@Transactional(readOnly = true)
+	public Project findProject(final long projectIdx) {
+		return projectRepository.findProjectByIdx(projectIdx)
+			.orElseThrow(ProjectNotFoundException::new);
 	}
 
 	// staus를 확인하기 위한 코드
 	@Transactional(readOnly = true)
-	public List<ProjectResponse> findProject(long memberIdx) {
+	public List<ProjectResponse> findProjectList(final String email) {
+		final Member member = memberRepository.findMemberByEmail(email).orElseThrow(MemberNotFoundException::new);
 		List<Project> tmp;
+
 		try {
-			tmp = projectRepository.findByMemberIdx(memberIdx);
+			tmp = projectRepository.findProjectsByMemberIdx(member.getIdx());
 		} catch (Exception e) {
-			log.error("Error finding projects for member with ID {}: {}", memberIdx, e.getMessage());
+			log.error("Error finding projects for member with ID {}: {}", member.getIdx(), e.getMessage());
 			throw new RuntimeException("Failed to find projects for member", e);
 		}
 
-		Long itemCnt = null;
-		List<ProjectResponse> result = new ArrayList<>();
+		long itemCnt;
+		final List<ProjectResponse> result = new ArrayList<>();
 
 		for (Project project : tmp) {
-			String status = null;
+			String status;
 
 			try {
 				//최근 성공시간이 최근 실패시간 보다 이후 -> SUCCESS
@@ -167,10 +189,9 @@ public class ProjectService {
 				LocalDateTime failureDate = project.getLastFailureDate();
 
 				//failureDate가 더 이후: 음수값 반환 / successDate가 더 최근: 양수 반환
-
 				Duration duration = Duration.between(failureDate, successDate);
 				// 초 단위 차이
-				long diffInSeconds = duration.getSeconds();
+				final long diffInSeconds = duration.getSeconds();
 				if (diffInSeconds >= 0)
 					status = "SUCCESS";
 
@@ -185,21 +206,21 @@ public class ProjectService {
 				status = "ERROR";
 				itemCnt = 0L;
 			}
+
 			if (!project.isDeletedFlag()) {
 				result.add(new ProjectResponse(project, status, itemCnt));
 			}
 		}
+
 		return result;
 	}
 
 	@Transactional
 	public void modifyProject(LocalDateTime mostLastSuccessTime, LocalDateTime mostLastFailureTime,
-		Long projectIdx) {
+		Project project) {
 		//프로젝트의 최근 성공시간과 최근 실패 시간 업데이트
-
-		 projectRepository.findProjectByIdx(projectIdx)
-			.orElseThrow(() -> new ProjectNotFoundException(GlobalErrorCode.PROJECT_NOT_FOUND));
-
-
+		project.updateLastDates(mostLastSuccessTime, mostLastFailureTime);
+		projectRepository.save(project);
 	}
+
 }
